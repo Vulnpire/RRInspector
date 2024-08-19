@@ -46,24 +46,24 @@ Let's suppose you have gathered urls, endpoints, params using tools like Waymore
 
 Check HTTP Status Codes and Fetch Titles:
 
-`cat urls.txt | rrinspector -status -mc 200 -title`
+`cat urls.txt | rrinspector -word / -status -mc 200 -title`
 
 Rate Limiting and Threading:
 
-`cat urls.txt | rrinspector -rl 10 -t 5`
+`cat urls.txt | rrinspector -word / -rl 10 -t 5`
 
 Inspect Request and Response Bodies with Regex Patterns:
 
-`cat urls.txt | rrinspector -req "user/\d+" -resp "@gmail" -resp "user\sID:\s\d+" -i -t 5`
+`cat urls.txt | rrinspector -word / -req "user/\d+" -resp "@gmail" -resp "user\sID:\s\d+" -i -t 5`
 
 Excluding Specific File Types and Using Custom Headers:
 
-`cat urls.txt | rrinspector -x .png,.jpeg -H "User-Agent: custom-agent" -t 5`
+`cat urls.txt | rrinspector -word / -x .png,.jpeg -H "User-Agent: custom-agent" -t 5`
 
 Using Regex Patterns from Files:
 
-`cat urls.txt | rrinspector -reqL req_patterns.txt -respL resp_patterns.txt -i -t 10`
+`cat urls.txt | rrinspector -word / -reqL req_patterns.txt -respL resp_patterns.txt -i -t 10`
 
 Add Custom Headers:
 
-`cat urls.txt | rrinspector -H "User-Agent: custom-agent; Cookie: sessionid=abc"`
+`cat urls.txt | rrinspector -word / -H "User-Agent: custom-agent; Cookie: sessionid=abc" -req "application/xml"`
