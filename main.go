@@ -14,20 +14,20 @@ import (
 )
 
 var (
-    words        string
-    wordFile     string
-    status       bool
-    rateLimit    int
-    title        bool
-    matchCode    int
-    exclude      string
-    reqPattern   string
-    reqFile      string
-    respPattern  string
-    respFile     string
-    headers      string
-    threads      int
-    caseInsensitive bool
+    words            string
+    wordFile         string
+    status           bool
+    rateLimit        int
+    title            bool
+    matchCode        int
+    exclude          string
+    reqPattern       string
+    reqFile          string
+    respPattern      string
+    respFile         string
+    headers          string
+    threads          int
+    caseInsensitive  bool
 )
 
 func init() {
@@ -65,28 +65,22 @@ func main() {
     urlChan := make(chan string, 100)
     resultChan := make(chan string, 100)
 
-    // rate limiter
+    // Rate limiter setup
     var rateLimiter <-chan time.Time
     if rateLimit > 0 {
         rateLimiter = time.Tick(time.Second / time.Duration(rateLimit))
     }
 
+    // Worker threads
     for i := 0; i < threads; i++ {
         wg.Add(1)
         go func() {
             defer wg.Done()
             for url := range urlChan {
                 if rateLimiter != nil {
-                    <-rateLimiter
+                    <-rateLimiter // Rate limit the requests
                 }
-                if reqRegexes != nil && !matchesAnyRegex(url, reqRegexes) {
-                    continue
-                }
-                if status {
-                    checkStatus(url, resultChan, excludeRegex, respRegexes, customHeaders)
-                } else if !excludeURL(url, excludeRegex) {
-                    resultChan <- url
-                }
+                processURL(url, filters, reqRegexes, respRegexes, excludeRegex, resultChan, customHeaders)
             }
         }()
     }
@@ -109,6 +103,63 @@ func main() {
 
     for result := range resultChan {
         fmt.Println(result)
+    }
+}
+
+func processURL(url string, filters []string, reqRegexes, respRegexes []*regexp.Regexp, excludeRegex *regexp.Regexp, resultChan chan<- string, customHeaders map[string]string) {
+    if reqRegexes != nil && !matchesAnyRegex(url, reqRegexes) {
+        return
+    }
+
+    client := &http.Client{
+        Timeout: 5 * time.Second,
+    }
+
+    req, err := http.NewRequest("GET", url, nil)
+    if err != nil {
+        return
+    }
+
+    // Add custom headers if provided
+    for key, value := range customHeaders {
+        req.Header.Add(key, value)
+    }
+
+    resp, err := client.Do(req)
+    if err != nil {
+        return
+    }
+    defer resp.Body.Close()
+
+    if excludeURL(url, excludeRegex) {
+        return
+    }
+
+    bodyBytes, err := ioutil.ReadAll(resp.Body)
+    if err != nil {
+        return
+    }
+    body := string(bodyBytes)
+
+    if respRegexes != nil && !matchesAnyRegex(body, respRegexes) {
+        return
+    }
+
+    if matchCode != 0 && resp.StatusCode != matchCode {
+        return
+    }
+
+    if status || title {
+        var output string
+        if title {
+            titleTag := fetchTitle(body)
+            output = fmt.Sprintf("%s [%d] - %s", url, resp.StatusCode, titleTag)
+        } else {
+            output = fmt.Sprintf("%s [%d]", url, resp.StatusCode)
+        }
+        resultChan <- output
+    } else {
+        resultChan <- url
     }
 }
 
@@ -210,72 +261,7 @@ func matchesAnyRegex(text string, regexes []*regexp.Regexp) bool {
     return false
 }
 
-func parseHeaders(headers string) map[string]string {
-    if headers == "" {
-        return nil
-    }
-    headerMap := make(map[string]string)
-    pairs := strings.Split(headers, ";")
-    for _, pair := range pairs {
-        parts := strings.SplitN(pair, ":", 2)
-        if len(parts) == 2 {
-            headerMap[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
-        }
-    }
-    return headerMap
-}
-
-func checkStatus(url string, resultChan chan<- string, excludeRegex *regexp.Regexp, respRegexes []*regexp.Regexp, customHeaders map[string]string) {
-    client := &http.Client{
-        Timeout: 5 * time.Second,
-    }
-
-    req, err := http.NewRequest("GET", url, nil)
-    if err != nil {
-        return
-    }
-
-    // add custom headers
-    for key, value := range customHeaders {
-        req.Header.Add(key, value)
-    }
-
-    resp, err := client.Do(req)
-    if err != nil {
-        return
-    }
-    defer resp.Body.Close()
-
-    if excludeURL(url, excludeRegex) {
-        return
-    }
-
-    // check if status code matches status code
-    if (matchCode != 0 && resp.StatusCode == matchCode) ||
-        (matchCode == 0 && (resp.StatusCode == http.StatusOK ||
-            resp.StatusCode == http.StatusMovedPermanently ||
-            resp.StatusCode == http.StatusForbidden)) {
-        bodyBytes, err := ioutil.ReadAll(resp.Body)
-        if err != nil {
-            return
-        }
-        body := string(bodyBytes)
-
-        if respRegexes != nil && !matchesAnyRegex(body, respRegexes) {
-            return
-        }
-
-        if title {
-            titleTag := fetchTitle(body)
-            resultChan <- fmt.Sprintf("%s [%d] - %s", url, resp.StatusCode, titleTag)
-        } else {
-            resultChan <- fmt.Sprintf("%s [%d]", url, resp.StatusCode)
-        }
-    }
-}
-
 func fetchTitle(body string) string {
-    // regex to extract the content of the <title> tag
     re := regexp.MustCompile("(?i)<title>(.*?)</title>")
     match := re.FindStringSubmatch(body)
     if len(match) > 1 {
@@ -284,3 +270,17 @@ func fetchTitle(body string) string {
     return "No Title"
 }
 
+func parseHeaders(headerStr string) map[string]string {
+    headers := make(map[string]string)
+    if headerStr == "" {
+        return headers
+    }
+    headerPairs := strings.Split(headerStr, ",")
+    for _, pair := range headerPairs {
+        parts := strings.SplitN(pair, ": ", 2)
+        if len(parts) == 2 {
+            headers[parts[0]] = parts[1]
+        }
+    }
+    return headers
+}
